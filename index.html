@@ -24,6 +24,7 @@
     font-size:1rem; cursor:pointer; text-decoration:none;
   }
   button:hover, a.btn:hover { background:#a5222f; }
+  button:disabled { opacity:0.5; cursor:not-allowed; }
   button.secondary { background:#3a2f26; }
   button.secondary:hover { background:#4a3c30; }
   input[type="text"] {
@@ -33,8 +34,9 @@
   }
   #error-box { color:#e07a7a; font-size:0.85rem; margin-top:1rem; display:none; }
   #result { margin-top:1.2rem; text-align:center; }
+  #result img { width:100%; border-radius:8px; margin-bottom:10px; background:#fff; }
   model-viewer { width:100%; height:280px; border-radius:8px; background:#0d0b10; }
-  #status { color:#a89f95; font-size:0.85rem; margin-top:0.8rem; }
+  #status { color:#a89f95; font-size:0.85rem; margin-top:0.8rem; word-break:break-word; }
 </style>
 </head>
 <body>
@@ -47,7 +49,7 @@
 
     <div id="logged-in-screen" style="display:none">
       <h1>توليد نموذج ثلاثي الأبعاد</h1>
-      <p>اكتب وصف الشكل، وسيتم توليده باستخدام رصيدك الخاص من Pollen.</p>
+      <p>اكتب وصف الشكل، وسيتم توليد صورة مرجعية ثم تحويلها إلى نموذج 3D باستخدام رصيدك من Pollen.</p>
       <input type="text" id="promptInput" placeholder="مثال: صندوق كنز خشبي قديم...">
       <button id="generateBtn">توليد نموذج 3D</button>
       <div id="result"></div>
@@ -63,6 +65,10 @@
 const APP_KEY = "pk_WyRZ0bzC5iFxeBp0";
 const REDIRECT_URI = window.location.origin + window.location.pathname;
 const SCOPE = "openid profile";
+
+// إعدادات التوليد
+const MODEL_3D = "trellis-2";   // نموذج صورة ← 3D (يحتاج صورة مرجعية)
+const RESOLUTION = "low";       // low | medium | high
 
 function base64url(buf) {
   return btoa(String.fromCharCode(...new Uint8Array(buf)))
@@ -152,26 +158,51 @@ function setStatus(msg) {
   document.getElementById('status').textContent = msg;
 }
 
+async function readError(res) {
+  try { return JSON.stringify(await res.json()); }
+  catch { return await res.text(); }
+}
+
 async function generate3D() {
   const key = localStorage.getItem('pollinations_api_key');
   const prompt = document.getElementById('promptInput').value.trim();
   const resultBox = document.getElementById('result');
+  const btn = document.getElementById('generateBtn');
   if (!prompt) { setStatus('اكتب وصف النموذج أولاً.'); return; }
 
-  setStatus('جارِ توليد النموذج (قد يأخذ وقتًا أطول من الصورة أو الصوت)...');
+  btn.disabled = true;
   resultBox.innerHTML = '';
 
   try {
+    // ── الخطوة 1: توليد صورة مرجعية من الوصف ──
+    // trellis-2 هو نموذج صورة ← 3D، ويحتاج صورة مرجعية دائمًا.
+    setStatus('الخطوة 1/2: جارِ توليد صورة مرجعية...');
+    const seed = Math.floor(Math.random() * 1000000);
+    const imgPrompt = `${prompt}, single object, centered, plain white background, studio lighting`;
+    const imageUrl =
+      `https://gen.pollinations.ai/image/${encodeURIComponent(imgPrompt)}` +
+      `?width=1024&height=1024&seed=${seed}&key=${encodeURIComponent(key)}`;
+
+    const imgRes = await fetch(imageUrl);
+    if (!imgRes.ok) {
+      throw new Error(`فشل توليد الصورة (HTTP ${imgRes.status}) — ${await readError(imgRes)}`);
+    }
+    const preview = document.createElement('img');
+    preview.src = URL.createObjectURL(await imgRes.blob());
+    resultBox.appendChild(preview);
+
+    // ── الخطوة 2: تحويل الصورة إلى نموذج 3D ──
+    setStatus('الخطوة 2/2: جارِ تحويل الصورة إلى نموذج 3D (قد يأخذ وقتًا)...');
     const res = await fetch(
-      `https://gen.pollinations.ai/3d/${encodeURIComponent(prompt)}`,
+      `https://gen.pollinations.ai/3d/${encodeURIComponent(prompt)}` +
+      `?model=${MODEL_3D}&resolution=${RESOLUTION}` +
+      `&image=${encodeURIComponent(imageUrl)}`,   // image= يأتي أخيرًا ومُرمَّز
       { headers: { Authorization: `Bearer ${key}` } }
     );
     if (!res.ok) {
-      let detail = '';
-      try { detail = JSON.stringify(await res.json()); }
-      catch { detail = await res.text(); }
-      throw new Error(`HTTP ${res.status} — ${detail}`);
+      throw new Error(`HTTP ${res.status} — ${await readError(res)}`);
     }
+
     const blob = await res.blob();
     const viewer = document.createElement('model-viewer');
     viewer.src = URL.createObjectURL(blob);
@@ -181,6 +212,8 @@ async function generate3D() {
     setStatus('');
   } catch (err) {
     setStatus('تعذّر توليد النموذج: ' + err.message);
+  } finally {
+    btn.disabled = false;
   }
 }
 
