@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>توليد نموذج 3D</title>
+<script type="module" src="https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js"></script>
+<style>
+  body {
+    margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center;
+    background:#0d0b10; color:#e8e2d8; font-family: system-ui, sans-serif;
+    padding: 24px;
+  }
+  .card {
+    background:#17141b; border:1px solid #3a2f26; border-radius:12px;
+    padding:2rem; width:100%; max-width:460px;
+  }
+  h1 { font-size:1.3rem; margin:0 0 0.5rem; color:#c9a24b; text-align:center; }
+  p { color:#a89f95; font-size:0.9rem; text-align:center; }
+  input[type="text"] {
+    width:100%; padding:0.75rem 0.9rem; border-radius:8px; border:1px solid #3a2f26;
+    background:#0d0b10; color:#e8e2d8; font-family:inherit; font-size:0.95rem;
+    margin-top:1rem; box-sizing:border-box;
+  }
+  button {
+    display:block; width:100%; margin-top:0.8rem; padding:0.8rem 1.5rem;
+    background:#8b1e2b; color:#fff; border:none; border-radius:8px;
+    font-size:1rem; cursor:pointer;
+  }
+  button:hover { background:#a5222f; }
+  button.secondary { background:#3a2f26; }
+  button.secondary:hover { background:#4a3c30; }
+  #result { margin-top:1.2rem; }
+  model-viewer { width:100%; height:280px; border-radius:8px; background:#0d0b10; }
+  #status { color:#a89f95; font-size:0.85rem; margin-top:0.8rem; text-align:center; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>توليد نموذج ثلاثي الأبعاد</h1>
+    <p>اكتب وصف الشكل، وسيتم توليده باستخدام رصيدك الخاص من Pollen.</p>
+    <input type="text" id="promptInput" placeholder="مثال: صندوق كنز خشبي قديم...">
+    <button id="generateBtn">توليد نموذج 3D</button>
+    <div id="result"></div>
+    <div id="status"></div>
+    <button class="secondary" id="logoutBtn">تسجيل الخروج</button>
+  </div>
+
+<script>
+const key = localStorage.getItem('pollinations_api_key');
+
+if (!key) {
+  document.querySelector('.card').innerHTML =
+    '<h1>لم تسجّل الدخول بعد</h1><p>الرجاء تسجيل الدخول أولاً.</p>' +
+    '<a style="display:inline-block;margin-top:1rem;padding:0.8rem 1.5rem;background:#8b1e2b;color:#fff;border-radius:8px;text-decoration:none;" href="./index.html">العودة لتسجيل الدخول</a>';
+}
+
+function setStatus(msg) {
+  document.getElementById('status').textContent = msg;
+}
+
+async function generate3D() {
+  const prompt = document.getElementById('promptInput').value.trim();
+  const resultBox = document.getElementById('result');
+  if (!prompt) { setStatus('اكتب وصف النموذج أولاً.'); return; }
+
+  setStatus('جارِ توليد النموذج (قد يأخذ وقتًا أطول من الصورة أو الصوت)...');
+  resultBox.innerHTML = '';
+
+  try {
+    const res = await fetch(
+      `https://gen.pollinations.ai/3d/${encodeURIComponent(prompt)}`,
+      { headers: { Authorization: `Bearer ${key}` } }
+    );
+    if (!res.ok) {
+      let detail = '';
+      try { detail = JSON.stringify(await res.json()); }
+      catch { detail = await res.text(); }
+      throw new Error(`HTTP ${res.status} — ${detail}`);
+    }
+    const blob = await res.blob();
+    const viewer = document.createElement('model-viewer');
+    viewer.src = URL.createObjectURL(blob);
+    viewer.setAttribute('camera-controls', '');
+    viewer.setAttribute('auto-rotate', '');
+    resultBox.appendChild(viewer);
+    setStatus('');
+  } catch (err) {
+    setStatus('تعذّر توليد النموذج: ' + err.message);
+  }
+}
+
+document.getElementById('generateBtn')?.addEventListener('click', generate3D);
+document.getElementById('logoutBtn')?.addEventListener('click', () => {
+  localStorage.removeItem('pollinations_api_key');
+  location.href = './index.html';
+});
+</script>
+</body>
+</html>
